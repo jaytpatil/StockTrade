@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # -----------------------------------------------
+  # PostgreSQL Database Node
+  # -----------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: stock_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-adminpassword}
+      POSTGRES_DB: ${DB_NAME:-stock_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d stock_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------
+  # FastAPI ML Backend
+  # -----------------------------------------------
+  backend:
+    build: 
+      context: ./backend_api
+      dockerfile: Dockerfile
+    container_name: stock_backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-admin}:${DB_PASSWORD:-adminpassword}@db:5432/${DB_NAME:-stock_db}
+      - SECRET_KEY=${JWT_SECRET_KEY:-super_secret_key_123}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Allow host to share trained ML artifacts with container
+      - ./backend_api/ml/models:/app/ml/models
+
+  # -----------------------------------------------
+  # Next.js React Frontend
+  # -----------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stock_frontend
+    restart: always
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/stocks
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
